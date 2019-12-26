@@ -1,0 +1,124 @@
+---
+title: "MovieLens Capstone Project HarvardX"
+author: "Farid Nazarov"
+date: "3 Dezember 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction and a quick summary of the Project
+This is the **Capstone** project for the **Data Analysis Certificate** from Harvard University.The MovieLens data set was collected by GroupLens Research.Using the MovieLens data set and penalized least squares. In this project 10 Million Movie Rating will be analyzed and make a new recommendation for the new film that will be graded by users. In order to do that I will develop a model. The aim of the algortihm/model is to minimise the errors so called Root Square of the Mean Errors.We can show _RMSE_ mathematically as follow:
+
+$$ \mbox{RMSE} = \sqrt{ \frac{1}{N} \sum_{u,i}^{} \left(\hat{y}_{u,i} - y_{u,i} \right)^2 }$$
+with $N$ being the number of user/movie combinations and the sum occurring over all these combinations.
+
+We can interpret the RMSE similarly to a standard deviation: it is the typical error we make when predicting a movie rating. If this number is larger than 1, it means our typical error is larger than one star, which is not good.
+Let us start to find the model that minimize _RMSE_ and predict better ${y}$. 
+
+
+### Methods and Analysis
+
+#### Data Preprocessing
+
+We get out data from GroupLens internet site. Here is the link if you want to download data manually. [link] (http://files.grouplens.org/datasets/movielens/ml-10m.zip). Here on we need some R package to use. These are __tidyverse__, __data.table__ and __caret__ packages. 
+
+```{r, echo=FALSE, include=FALSE, warning=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+```
+
+```{r,message=FALSE,warning=FALSE}
+library(tidyverse)
+library(caret)
+library(data.table)
+```
+
+
+Let's first download the data and clean data into tidy format. Finally we write get the data __edx__ with column names *userId*, *movieId*, *rating* and *timestamp* which I will use to model in my alogirthm.
+
+
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE, eval=FALSE}
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+movielens <- left_join(ratings, movies, by = "movieId")
+
+
+```
+Let's set seed to 1 and make edx set from the _movielens_ that we have downloaded.
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE,, eval=FALSE}
+
+ifelse(as.numeric(version$minor)<6,set.seed(1), set.seed(1, sample.kind="Rounding"))
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+
+temp <- movielens[test_index,]
+
+```
+
+We make a new validation sets. We have to be make sure userId and movieId in validation set are also in edx set.
+```{r, message=FALSE,warning=FALSE, echo=FALSE, eval=FALSE}
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+Now from edx set we make a new test and train set to build a model based on these sets. In machine learning it is popular to use validation set at the end to check the model suitabibility. That is why we make a new train and test set from edx. 
+
+
+```{r, message=FALSE,warning=FALSE, echo=FALSE, eval=FALSE}
+ifelse(as.numeric(version$minor)<6,set.seed(1), set.seed(1, sample.kind="Rounding"))
+test_index_edx <- createDataPartition(y = edx$rating, times = 1, p = 0.2, list = FALSE)
+test_set <- edx[ test_index_edx, ]
+train_set <- edx[ -test_index_edx, ]
+
+#Make sure we do not include movies and users in the test set that do not appear in training set
+test_set <- test_set%>%
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
+```
+
+
+
+#### A first model
+So in the next part of this paper I will try to find a best suitable model to minimize the RMSE. In order to find the model I will use train set that we have created from _edx_ set. 
+Our best starting point is always mean value of the data. It means that if we do not have any model on hand and can not model it the best prediction always would be the $\mu$ value of the data. So the $\mu$ value of the data would be:
+$$ \mu= \frac{1}{N}\sum_{i} {y_i} $$
+
+
+
+
+
+
+### Modeling movie effects
+
+Our best starting point is always mean value of the data. It means that if we do not have any model on hand and can not model it the best prediction always would be the $\mu$ value of the data. So the $\mu$ value of the data would be:
+$$ \mu= \frac{1}{N}\sum_{i} {y_i} $$
+
+
+Where ${y_i}$ are our train data.
+We know from experience that some movies are just generally rated higher than others. This
+intuition, that different movies are rated differently, is confirmed by data. We can augment our previous model by adding the term $b_i$ to represent average ranking for movie $i$: 
+
+$$
+Y_{u,i} = \mu + b_i + \varepsilon_{u,i}
+$$
+
