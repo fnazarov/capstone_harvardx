@@ -2,12 +2,13 @@
 title: "MovieLens Capstone Project HarvardX"
 author: "Farid Nazarov"
 date: "3 Dezember 2019"
-output: pdf_document
+output:
+  pdf_document: default
+  word_document: default
+  html_document:
+    df_print: paged
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
 
 ## Introduction and a quick summary of the Project
 This is the **Capstone** project for the **Data Analysis Certificate** from Harvard University.The MovieLens data set was collected by GroupLens Research.Using the MovieLens data set and penalized least squares. In this project 10 Million Movie Rating will be analyzed and make a new recommendation for the new film that will be graded by users. In order to do that I will develop a model. The aim of the algortihm/model is to minimise the errors so called Root Square of the Mean Errors.We can show _RMSE_ mathematically as follow:
@@ -18,36 +19,41 @@ with $N$ being the number of user/movie combinations and the sum occurring over 
 We can interpret the RMSE similarly to a standard deviation: it is the typical error we make when predicting a movie rating. If this number is larger than 1, it means our typical error is larger than one star, which is not good.
 Let us start to find the model that minimize _RMSE_ and predict better ${y}$. 
 
+### Importing Essential Libraries
+In my Data Science project, I will make use of these packages: _recommenderlab_, _ggplot2_, _data.table_ , _caret_ , _dplyr_ , _tidyverse_ and _reshape2_.
+ 
 
-### Methods and Analysis
-
-#### Data Preprocessing
-
-We get out data from GroupLens internet site. Here is the link if you want to download data manually. [link] (http://files.grouplens.org/datasets/movielens/ml-10m.zip). Here on we need some R package to use. These are __tidyverse__, __data.table__ and __caret__ packages. 
-
-```{r, echo=FALSE, include=FALSE, warning=FALSE}
+```{r install_Required_libraries}
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
-```
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
 
-```{r,message=FALSE,warning=FALSE}
+
+```{r open_Libraries,message=FALSE,echo=FALSE,warning=FALSE}
 library(tidyverse)
 library(caret)
 library(data.table)
+library(dplyr)
+library(tinytex)
+library(ggplot2)
+
 ```
 
 
+#### Dataset
+In order to build our recommendation system, we have used the MovieLens Dataset. This data consists of 10.000.054 ratings applied over 10.677 movies. We get out data from GroupLens internet site. Here is the link if you want to download data manually. [link] (http://files.grouplens.org/datasets/movielens/ml-10m.zip). 
 Let's first download the data and clean data into tidy format. Finally we write get the data __edx__ with column names *userId*, *movieId*, *rating* and *timestamp* which I will use to model in my alogirthm.
 
 
 
-```{r, message=FALSE,warning=FALSE, echo=FALSE, eval=FALSE}
+```{r DownloadFile}
 dl <- tempfile()
 download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
 ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
                  col.names = c("userId", "movieId", "rating", "timestamp"))
-
 
 movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
 colnames(movies) <- c("movieId", "title", "genres")
@@ -58,20 +64,26 @@ movielens <- left_join(ratings, movies, by = "movieId")
 
 
 ```
-Let's set seed to 1 and make edx set from the _movielens_ that we have downloaded.
 
-```{r, message=FALSE,warning=FALSE, echo=FALSE,, eval=FALSE}
-
-ifelse(as.numeric(version$minor)<6,set.seed(1), set.seed(1, sample.kind="Rounding"))
+```{r CreateEdx,warning=TRUE,echo=TRUE}
+set.seed(1)
 test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
-edx <- movielens[-test_index,]
+edx <- movielens[-test_index, ]
 
-temp <- movielens[test_index,]
-
+temp <- movielens[test_index, ]
 ```
+Let's explore our data that we have dowloaded from Grouplens intetnet site.We can overview the summary of the movies using the summary() function. We will also use the head() function to print the first six lines of movie_data
+
+```{r Summary,eval=FALSE}
+summary(movielens)
+head(movielens)
+```
+As we see users also can give 0.5 rating. It means that ratings is not as we used to 1 to 5 rather it is increment of 0.5. Min rating is 0.5, so there is no 0 rating.
+
+Let's set seed to 1 and make edx set from the _movielens_ that we have downloaded. To do that we take only 10%of the _movielens_ data. Of course we can take more than 10% of the data in order to make _edx_ set but 10% is enough to make a good model from 10 million data.
 
 We make a new validation sets. We have to be make sure userId and movieId in validation set are also in edx set.
-```{r, message=FALSE,warning=FALSE, echo=FALSE, eval=FALSE}
+```{r, message=FALSE,warning=FALSE, echo=FALSE}
 validation <- temp %>% 
   semi_join(edx, by = "movieId") %>%
   semi_join(edx, by = "userId")
@@ -79,18 +91,145 @@ validation <- temp %>%
 removed <- anti_join(temp, validation)
 edx <- rbind(edx, removed)
 rm(dl, ratings, movies, test_index, temp, movielens, removed)
+
 ```
+
+#### Edx Data Summary
+Let's see some charachteristics of _edx_ data.
+
+```{r EdxCharachteristic}
+n_distinct(edx$userId)
+n_distinct(edx$movieId)
+
+```
+As we see from the output above there are 69.878 and 10.669 movies. But there are some users only gave one rating. So in there next data pre-preration system we will filter users that at least gave 50 ratings.
+
+
+#### Most Viewed Movies Visualization
+In this section of the machine learning project, I will explore the most viewed movies in our dataset. We will first count the number of views in a film and then organize them in a table that would group them in descending order.
+
+```{r MostViewed,warning=FALSE}
+most_viewed<- edx %>% group_by(movieId,title )%>%
+  summarise(views=sum(n())) %>%
+  arrange(desc(views)) %>%
+  ungroup()%>%
+  top_n(10)
+
+most_viewed %>% ggplot(aes(x=title,y=views))+geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=views),vjust=0.3,size=3.5)+
+  theme(axis.text.x = element_text(angle = 45,hjust=1))+
+  ggtitle("Total views of top 10 films")
+
+```
+
+From the above bar-plot, we observe that Pulp Fiction is the most-watched film followed by Forrest Gump.
+
+#### Performing Data Preparation
+We will conduct data preparation in the following three steps ???
+* Selecting useful data.
+* Normalizing data.
+* Binarizing the data.
+
+We can see the number of unique users that provided ratings and how many unique movies were rated:
+
+```{r}
+
+edx %>%
+summarize(n_users = n_distinct(userId),
+n_movies = n_distinct(movieId)) 
+
+```
+
+For finding useful data in our dataset, I have set the threshold for the minimum number of users who have rated a film at lease 50 times. This is also same for minimum number of views that are per film. This way, I have filtered a list of watched films from least-watched ones.
+
+```{r UsersOver50}
+
+users_over_50 <- edx %>%
+  group_by(userId) %>% 
+  summarise(n=n()) %>%
+  filter(n>50) %>% 
+  ungroup() %>%
+  left_join(edx,by="userId") %>% 
+  group_by(userId) %>%
+  summarise(User_Rated=n())
+
+movies_over_50 <- edx %>%
+  group_by(movieId) %>% 
+  summarise(n=n()) %>%
+  filter(n>50) %>%
+  ungroup() %>%
+  left_join(edx,by="movieId") %>%
+  group_by(movieId) %>%
+  summarise(Movies_Rated=n())
+
+```
+From the above output of users_over_50, we observe that there are 40151 users and 7037 movies as opposed to the previous 69878 users and 10669 films. 
+
+
+We see the movies has its premier year in it is titel column. 
+```{r}
+head(edx)
+```
+So in order to detect this year I will use regex functions to detect the premier years.
+```{r PremierYear}
+pattern_1 <- "\\(\\d{4}"
+pattern_2 <- "\\d{4}"
+strings <- regmatches(edx$title, regexpr(pattern_1, edx$title))
+premier_year <- as.numeric(regmatches(strings, regexpr(pattern_2, strings)))
+edx <- edx %>% mutate(premier_year = premier_year, 
+                                  age_of_movie = max(premier_year) - premier_year)
+head(edx)
+```
+So we see in the column age_of_movies. Let's see if there is a correlation between age of the year and the rating of the movies. There are some movies that is very old and it can make some noise in our analysis. So I will filter the movies that are less than 40 years old. 
+
+```{r Grapg, eval=FALSE}
+edx %>% group_by(age_of_movie,rating) %>% 
+  filter(age_of_movie<40) %>%
+  ggplot(aes(age_of_movie,rating))+
+  geom_col()
+
+```
+So what we see there is a clear relationship between the age of the movie and the rating. I will try to use this relationshio in my model.
+
+In Data Science we make in generall three data sets one is test one is training and another is validation set. So let's make a new test and training set from _edx_ set that we have created.
+
+```{r Create_Train_test}
+set.seed(1)
+test_index_edx <- createDataPartition(y = edx$rating, times = 1, p = 0.2, list = FALSE)
+test_set <- edx[ test_index_edx, ]
+train_set <- edx[ -test_index_edx, ]
+test_set <- test_set%>%
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
+```
+
+#### A first model
+So in the next part of this paper I will try to find a best suitable model to minimize the RMSE. In order to find the best model I will use train set that we have created from _edx_ set. 
+Our best starting point is always mean value of the data. It means that if we do not have any model on hand and can not model it the best prediction always would be the $\mu$ value of the data. So the $\mu$ value of the data would be:
+$$ \hat{\mu}= \frac{1}{N}\sum_{i} {y_i} $$
+Where ${y_i}$ are our train data. So our best simple guess would be:
+$$Y_{u,i}= \mu + \varepsilon_{u,i} $$
+Which $\varepsilon{u,i}$ is the error term that we can not predict with mean value even with our best model. So let's apply it to our data.
+
+```{r, eval=FALSE}
+mu_hat=mean(train_set$rating)
+RMSE(mu_hat, test_set$rating)
+```
+
+We know from experience that some movies are just generally rated higher than others. This intuition, that different movies are rated differently, is confirmed by data. We can augment our previous model by adding the term $b_i$ to represent average ranking for movie $i$: 
+
+$$
+Y_{u,i} = \mu + b_i + \varepsilon_{u,i}
+$$
 
 Now from edx set we make a new test and train set to build a model based on these sets. In machine learning it is popular to use validation set at the end to check the model suitabibility. That is why we make a new train and test set from edx. 
 
 
-```{r, message=FALSE,warning=FALSE, echo=FALSE, eval=FALSE}
-ifelse(as.numeric(version$minor)<6,set.seed(1), set.seed(1, sample.kind="Rounding"))
+```{r TestTrainSet, message=FALSE,warning=FALSE, echo=FALSE}
+set.seed(1)
 test_index_edx <- createDataPartition(y = edx$rating, times = 1, p = 0.2, list = FALSE)
 test_set <- edx[ test_index_edx, ]
 train_set <- edx[ -test_index_edx, ]
-
-#Make sure we do not include movies and users in the test set that do not appear in training set
 test_set <- test_set%>%
   semi_join(train_set, by = "movieId") %>%
   semi_join(train_set, by = "userId")
@@ -98,27 +237,259 @@ test_set <- test_set%>%
 
 
 
-#### A first model
-So in the next part of this paper I will try to find a best suitable model to minimize the RMSE. In order to find the model I will use train set that we have created from _edx_ set. 
+#### Methods and Analysis
+So in the next part of this paper I will try to find a best suitable model to minimize the RMSE. In order to find the best model I will use train set that we have created from _edx_ set. 
 Our best starting point is always mean value of the data. It means that if we do not have any model on hand and can not model it the best prediction always would be the $\mu$ value of the data. So the $\mu$ value of the data would be:
-$$ \mu= \frac{1}{N}\sum_{i} {y_i} $$
+$$ \hat{\mu}= \frac{1}{N}\sum_{i} {y_i} $$
+Where ${y_i}$ are our train data. So our best simple guess would be:
+$$Y_{u,i}= \mu + \varepsilon_{u,i} $$
+Which $\varepsilon{u,i}$ is the error term that we can not predict with mean value even with our best model. So let's apply it to our data.
 
 
+```{r RMSEMean, eval=FALSE}
+mu_hat=mean(train_set$rating)
+RMSE(mu_hat, test_set$rating)
+```
+So it was not a bad guess. But we need a sophisticated model to predict more precisely and reduce RMSE. To do that I will use some technique that we have seen some pattern above data visualisations such as some users and movies effect.
 
-
-
-
-### Modeling movie effects
-
-Our best starting point is always mean value of the data. It means that if we do not have any model on hand and can not model it the best prediction always would be the $\mu$ value of the data. So the $\mu$ value of the data would be:
-$$ \mu= \frac{1}{N}\sum_{i} {y_i} $$
-
-
-Where ${y_i}$ are our train data.
 We know from experience that some movies are just generally rated higher than others. This
 intuition, that different movies are rated differently, is confirmed by data. We can augment our previous model by adding the term $b_i$ to represent average ranking for movie $i$: 
 
 $$
 Y_{u,i} = \mu + b_i + \varepsilon_{u,i}
 $$
+
+Let's look at some of the general properties of the data to better understand the challenges.
+
+The first thing we notice is that some movies get rated more than others. Here is the distribution:
+
+```{r}
+mu <- mean(train_set$rating) 
+movie_avgs <- train_set %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+```
+
+We can see that these estimates vary substantially:
+
+```{r movie-effects}
+qplot(b_i, data = movie_avgs, bins = 10, color = I("black"))
+```
+This distribution tell us that there are popular movies watched by millions and artsy, independent movies watched by just a few. 
+
+Our second observation is that some users are more active than others at rating movies:
+
+```{r movie-user-hist, echo=FALSE}
+train_set %>% 
+  count(userId) %>% 
+  ggplot(aes(n)) + 
+  geom_histogram(bins = 30, color = "black") + 
+  scale_x_log10() + 
+  ggtitle("Users")
+```
+ 
+
+
+### Modeling movie effects
+
+We know from experience that some movies are just generally rated higher than others. This intuition, that different movies are rated differently, is confirmed by data. We can augment our previous model by adding the term $b_i$ to represent average ranking for movie $i$: 
+
+$$
+Y_{u,i} = \mu + b_i + \varepsilon_{u,i}
+$$
+
+So let us model it and see the result how it reduce our RMSE.
+
+```{r }
+mu <- mean(train_set$rating) 
+movie_avgs <- train_set %>% 
+  group_by(movieId) %>% 
+  summarize(b_i =mean(rating - mu))
+```
+
+We can see that these estimates vary substantially:
+
+```{r }
+qplot(b_i, data = movie_avgs, bins = 10, color = I("black"))
+```
+
+Remember $\hat{\mu}=3.5$ so a $b_i = 1.5$ implies a perfect five star rating.
+
+Let's see how much our prediction improves once we use $\hat{y}_{u,i} = \hat{\mu} + \hat{b}_i$:
+
+```{r}
+predicted_ratings <- mu + test_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  pull(b_i)
+
+Movie_Effect_rmse <- RMSE(predicted_ratings, test_set$rating)
+
+Movie_Effect_rmse 
+```
+
+So it has already improved our RMSE substantially. Now let's model users effects.
+
+#### User effects
+
+Let's compute the average rating for user $u$ for those that have rated over 100 movies: 
+
+```{r }
+train_set %>% 
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating)) %>% 
+  filter(n()>=100) %>%
+  ggplot(aes(b_u)) + 
+  geom_histogram(bins = 30, color = "black")
+```
+
+Notice that there is substantial variability across users 
+as well: some users are very cranky and others love every movie.
+This implies that a further improvement to our model may be:
+
+$$ 
+Y_{u,i} = \mu + b_i + b_u + \varepsilon_{u,i}
+$$
+
+where $b_u$ is a user-specific effect. Now if a cranky user (negative $b_u$) rates a great movie (positive $b_i$), the effects counter each other and we may be able to correctly predict that this user gave this great movie a 3 rather than a 5. 
+
+```{r}
+user_avgs <- train_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  group_by(userId) %>%
+  summarize(b_u = mean(rating - mu - b_i))
+```
+
+We can now construct predictors and see how much the RMSE improves:
+
+```{r }
+predicted_ratings <- test_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+
+RMSE_Movie_Users <- RMSE(predicted_ratings, test_set$rating)
+
+RMSE_Movie_Users
+```
+
+What we see it has also substantially decrease our RMSE. So in the next step let's model the age of the movies and see how it effect our recommendation system.
+
+```{r}
+ 
+  mu <- mean(train_set$rating)
+  
+  b_i <- train_set %>%
+  group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu)/(n()))
+  
+  b_u <- train_set %>%
+    left_join(b_i, by = "movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - mu - b_i)/(n()))
+  
+  b_t <- train_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    group_by(premier_year) %>%
+    summarize(b_t = sum(rating - mu - b_i - b_u)/(n()))
+  
+  predicted_ratings <- test_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_t, by = "premier_year") %>%
+    mutate(pred = mu + b_i + b_u + b_t) %>%
+    pull(pred)
+  
+ rmse_Movie_User_Premier <- RMSE(predicted_ratings, test_set$rating)
+ rmse_Movie_User_Premier
+```
+
+
+So our premier year effect it means that age of the movie has not a substantial effect on our recommendation. But what we can do? We can use a very powerful technique penalized least square. For more mathematical information and intuitions please refer to Wikipedia. Here is the link
+[link](https://en.wikipedia.org/wiki/Regularized_least_squares)
+The general idea behind regularization is to constrain the total variability of the effect sizes. Why does this help? Consider a case in which we have movie $i=1$ with 100 user ratings and 4 movies $i=2,3,4,5$ with just one user rating. We intend to fit the  model
+
+$$
+Y_{u,i} = \mu + b_i + \varepsilon_{u,i}
+$$
+
+```{r}
+  lambdas=4
+  mu <- mean(train_set$rating)
+  
+  b_i <- train_set %>%
+  group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu)/(n() + lambdas))
+  
+  b_u <- train_set %>%
+    left_join(b_i, by = "movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - mu - b_i)/(n() + lambdas))
+  
+  b_t <- train_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    group_by(premier_year) %>%
+    summarize(b_t = sum(rating - mu - b_i - b_u)/(n() + lambdas))
+  
+  predicted_ratings <- test_set %>%
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    left_join(b_t, by = "premier_year") %>%
+    mutate(pred = mu + b_i + b_u + b_t) %>%
+    pull(pred)
+  
+ RMSE_Error <-RMSE(predicted_ratings, test_set$rating)
+ RMSE_Error
+```
+Good job! It was a good guess. But isn't it a random guess? What we can do a sophistiacted guess. To do that we can imply _sapply_ function to find the best _error term_ that minimise our RMSE to minimum.So let's do it.
+Note that $\lambda$ is a tuning parameter. We can use cross-validation to choose it.
+
+
+```{r best-lambdas}
+lambdas <- seq(3, 5, 0.1)
+
+rmses <- sapply(lambdas, function(l){
+
+  mu <- mean(train_set$rating)
+  
+  b_i <- train_set %>% 
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu)/(n()+l))
+  
+  b_u <- train_set %>% 
+    left_join(b_i, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - b_i - mu)/(n()+l))
+
+  predicted_ratings <- 
+    test_set %>% 
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    mutate(pred = mu + b_i + b_u) %>%
+    pull(pred)
+  
+    return(RMSE(predicted_ratings, test_set$rating))
+})
+
+qplot(lambdas, rmses)  
+min(rmses)
+lambda <- lambdas[which.min(rmses)]
+```
+
+For the full model, the optimal $\lambda$ is 4.7
+
+
+
+
+
+
+
+
+
+
+   
+    
 
